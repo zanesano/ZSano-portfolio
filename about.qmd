@@ -2,8 +2,4 @@
 title: "About"
 ---
 
-About this site
-
-```{r}
-1 + 1
-```
+Zane is a student at California State University Monterey Bay studying Accounting with a minor in Data Science. Their academic work on this site focuses on combining quantitative analysis with clear communication, using tools such as R and Quarto to explore, analyze, and present data in a reproducible and accessible way. Through coursework and projects, Zane has developed experience in data visualization, statistical analysis, and structured reporting, with an emphasis on clarity, accuracy, and usability. This portfolio highlights selected projects that demonstrate their technical skills, analytical approach, and interest in using data to understand real world patterns and support informed decision making.
