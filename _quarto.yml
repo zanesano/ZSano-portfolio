@@ -1,21 +1,20 @@
 project:
   type: website
+  output-dir: docs
 
 website:
-  title: "ZSano-portfolio"
+  title: "Zane Sano Portfolio"
   navbar:
     left:
       - href: index.qmd
-        text: Home
-      - about.qmd
+        text: "Home"
+      - href: about.qmd
+        text: "About Me"
 
 format:
   html:
-    theme:
-      - cosmo
-      - brand
+    theme: quartz
     css: styles.css
     toc: true
 
-editor: visual
-
+editor: source
