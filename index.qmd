@@ -1,11 +1,13 @@
 ---
-title: "ZSano-portfolio"
+title: "Zane Sano"
+about:
+  template: jolla
+  image: zane-headshot.png
+  links:
+    - icon: linkedin
+      text: LinkedIn
+      href: https://www.linkedin.com/in/zanesano/
+    - icon: github
+      text: Github
+      href: https://github.com/zanesano
 ---
-
-This is a Quarto website.
-
-To learn more about Quarto websites visit <https://quarto.org/docs/websites>.
-
-```{r}
-1 + 1
-```
