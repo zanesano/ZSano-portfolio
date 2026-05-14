@@ -11,7 +11,8 @@ website:
         text: "Home"
       - href: about.qmd
         text: "About Me"
-
+      - href: portfolio-project/project-portfolio.qmd
+        text: "Portfolio Project"
 format:
   html:
     theme: quartz

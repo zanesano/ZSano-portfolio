@@ -1,5 +1,698 @@
 ---
-title: "project-portfolio"
-format: html
+title: "Portfolio Project"
+author: "Zane Sano"
+format:
+  html:
+    theme: cyborg
+    toc: true
+    toc-depth: 2
+    page-layout: full
+    smooth-scroll: true
+execute: 
+  echo: false
+  warning: false
+  message: false
 ---
 
+My project will use NASA meteorite landing data to explore where meteorites are found, how recorded landings have changed over time, and how meteorite mass differs across categories.
+
+```{r}
+#| label: set-up
+
+library(tidyverse)
+library(janitor)
+library(maps)
+library(waffle)
+library(patchwork)
+library(scales)
+library(ggridges)
+
+```
+
+------------------------------------------------------------------------
+
+## Data Description
+
+I will be using a dataset on <a href="https://data.nasa.gov/dataset/meteorite-landings"> meteorite landings from NASA </a>, which I found through NASA's Open Data Portal. The dataset contains records of meteorites that have been found or observed falling to Earth and includes their physical characteristics and geographic locations.
+
+The dataset contains over 45,000 observations and includes a mix of categorical and numerical variables. These variables provide identifying information, classification details, measurements, and geographic coordinates that can be used to analyze both temporal and spatial patterns in meteorite landings.
+
+## Data Cleaning
+
+First I loaded the original meteorite landing file and prepared it for the rest of the project. I cleaned up the column names so they are easier to read and work with, removed columns that I do not need for my visualizations, and marked the fall status and meteorite classification columns as categories instead of regular text.
+
+```{r}
+#| label: data-cleaning-pre
+
+meteorites <- read_csv("data/data-raw/Meteorite_Landings.csv", ) |>
+  clean_names() |>
+  select(-geo_location, -id, -nametype) |>
+  mutate(fall = as.factor(fall))
+
+# convert variables
+meteorites <- meteorites |>
+  mutate(
+    fall = as.factor(fall),
+    recclass = as.factor(recclass)
+  )
+```
+
+### Dataset 1
+
+My first data set will be used to visualize the landings of meteorites on Earth and in the US across different decades. I am going to filter the original data set to remove any years after 2026 since those were incorrectly entered. I am also going to remove the columns for information I don't need for this specific dataset. Next I am going to recreate an additional factor variable called `decades` based off the values of interest in `year`. I am also going to convert `mass_g` to `mass_kg`. I am also going to create a second data set that only includes the observations within the United States for my second map. Lastly I am going to save the cleaned data set into the correct folder.
+
+```{r}
+#| label: data-cleaning-1
+
+# filter dataset 
+meteorites_map <- meteorites |>
+  filter(
+    year < 2026,
+    !is.na(mass_g),
+    !is.na(reclat),
+    !is.na(reclong)
+  ) |>
+  select(
+    -name,
+    -recclass,
+    -fall
+  )
+
+# create new variables
+meteorites_map <- meteorites_map |>
+  mutate(
+    time_period = case_when(
+      year <= 1950 ~ "1950 and older",
+      year <= 1960 ~ "1951 to 1960",
+      year <= 1970 ~ "1961 to 1970",
+      year <= 1980 ~ "1971 to 1980",
+      year <= 1990 ~ "1981 to 1990",
+      year <= 2000 ~ "1991 to 2000",
+      year <= 2010 ~ "2001 to 2010",
+      year > 2010 ~ "2011 to current day"
+    ),
+    time_period = factor(time_period), 
+    mass_kg = mass_g / 1000
+  )
+
+us_meteorites <- meteorites_map |>
+  mutate(
+    us_state = maps::map.where("state", reclong, reclat)
+  ) |>
+  filter(!is.na(us_state))
+
+
+#save clean data
+write_csv(meteorites_map, "data/data-clean/V1a_data.csv")
+write_csv(us_meteorites, "data/data-clean/V1b_data.csv")
+
+```
+
+### Dataset 2
+
+My second visualization will display the iron content and the levels of thermal alteration of chondrite meteorites based on the Van Schmus and Wood classification system, which ranks meteorites from 1 to 7 based on the degree of changes they underwent on their parent asteroid. First I am going to create a new dataset that only includes the `recclass` column, as it contains all the information I need. Next I am going to create a column that extracts the number representing the level of thermal alteration. Type 3 chondrites, also known as unequilibriated chondrites, are further broken down into subtypes. I am going to create bins for each level of the Type 3 subtypes. Then I am going to create a column that extracts the iron content of each chondrite. Lastly, I am going to save the cleaned data set into the correct folder.
+
+```{r}
+#| label: data-cleaning-2
+
+# filter dataset 
+chondrites_thermal_iron <- meteorites |>
+  select(recclass) |>
+  filter(!is.na(recclass))
+
+#new thermal variables
+chondrites_thermal_iron <- chondrites_thermal_iron |>
+  mutate(
+    thermal_match = str_match(
+      recclass,
+      "(\\d+(\\.\\d+)?)/(\\d+(\\.\\d+)?)"
+    ),
+    thermal_alteration_num = case_when(
+      !is.na(thermal_match[, 1]) ~ (
+        as.numeric(thermal_match[, 2]) +
+          as.numeric(thermal_match[, 4])
+      ) / 2,
+      TRUE ~ as.numeric(str_extract(recclass, "\\d+(\\.\\d+)?"))
+    )
+  ) |>
+  select(-thermal_match) |>
+  filter(!is.na(thermal_alteration_num))
+
+chondrites_thermal_iron <- chondrites_thermal_iron |>
+  mutate(
+    thermal_alteration_bins = case_when(
+      thermal_alteration_num > 3 &
+        thermal_alteration_num < 4 ~ floor(
+          (thermal_alteration_num - 3
+          ) * 9) + 1
+    )
+  ) |>
+  filter(!is.na(thermal_alteration_bins))
+
+#new iron variables
+chondrites_thermal_iron <- chondrites_thermal_iron |>
+  mutate(
+    iron_content = case_when(
+      str_detect(recclass, "^H") ~ "High Iron",
+      str_detect(recclass, "^LL") ~ "Low Iron",
+      str_detect(recclass, "^(L|CH)") ~ "Moderate Iron",
+      str_detect(recclass, "^(CI|CM|CO|CV|CR|CK|CB|C)") ~ "No Iron"
+    ),
+    iron_content = factor(
+      iron_content,
+      levels = c(
+        "No Iron", 
+        "Low Iron", 
+        "Moderate Iron", 
+        "High Iron"
+        ),
+      ordered = TRUE
+    )
+  ) |>
+  
+  filter(!is.na(iron_content))
+
+#save clean data
+write_csv(chondrites_thermal_iron, "data/data-clean/V2_data.csv")
+
+```
+
+### Dataset 3
+
+My third visualization will focus on achondrite meteorites and how their subtypes appear over time. First I am going to create a new dataset that keeps only the `recclass` and `year` columns. Then I am going to filter the data to include records from 1865 to 2015 and remove observations with missing classification or year values. Next I am going to create 15-year time periods so the data can be grouped more clearly across time. Then I am going to use the `recclass` column to identify specific achondrite types, including Eucrite, Diogenite, Howardite, Lunar, Martian, Aubrite, Ureilite, Angrite, Brachinite, Acapulcoite, Lodranite, and Winonaite. I am also going to create a second version of the dataset for the ridgeline visualization, using records from 1940 to 2015 and setting the achondrite types in a specific order for the graph so it reads similar to the previous graphic. Lastly, I am going to save both cleaned datasets into the correct folder.
+
+```{r}
+#| label: data-cleaning-3
+
+# filter data set
+achondrite_composition <- meteorites |>
+  select(recclass, year) |>
+  filter(
+    !is.na(recclass),
+    !is.na(year),
+    year >= 1865,
+    year <= 2015
+  )
+
+# create composition variables
+achondrite_composition <- achondrite_composition |>
+  mutate(
+    year_period_start = floor((year - 1865) / 15) * 15 + 1865,
+    year_period_start = pmin(year_period_start, 2000),
+    year_period_mid = year_period_start + 7.5,
+    year_period = factor(year_period_start),
+
+    achondrite_type = case_when(
+      str_detect(recclass, "^Acapulcoite") ~ "Acapulcoite",
+      str_detect(recclass, "^Angrite") ~ "Angrite",
+      str_detect(recclass, "^Aubrite") ~ "Aubrite",
+      str_detect(recclass, "^Brachinite") ~ "Brachinite",
+      str_detect(recclass, "^Diogenite") ~ "Diogenite",
+      str_detect(recclass, "^Eucrite") ~ "Eucrite",
+      str_detect(recclass, "^Howardite") ~ "Howardite",
+      str_detect(recclass, "^Lodranite") ~ "Lodranite",
+      str_detect(recclass, "^Lunar") ~ "Lunar",
+      str_detect(recclass, "^Martian") ~ "Martian",
+      str_detect(recclass, "^Ureilite") ~ "Ureilite",
+      str_detect(recclass, "^Winonaite") ~ "Winonaite",
+      TRUE ~ NA_character_
+    )
+  ) |>
+  filter(!is.na(achondrite_type))
+
+# create ridgeline data
+achondrite_ridge_data <- achondrite_composition |>
+  filter(
+    year >= 1940,
+    year <= 2015,
+    !is.na(achondrite_type)
+  ) |>
+  mutate(
+    achondrite_type = factor(
+      achondrite_type,
+      levels = c(
+        "Winonaite",
+        "Ureilite",
+        "Martian",
+        "Lunar",
+        "Lodranite",
+        "Howardite",
+        "Eucrite",
+        "Diogenite",
+        "Brachinite",
+        "Aubrite",
+        "Angrite",
+        "Acapulcoite"
+      )
+    )
+  )
+
+# save clean data
+write_csv(achondrite_composition, "data/data-clean/V3a_data.csv")
+write_csv(achondrite_ridge_data, "data/data-clean/V3b_data.csv")
+
+```
+
+## Data Visualizations
+
+### Visualization 1A
+
+This visualization shows where meteorites have been recorded around the world. Each circle represents a meteorite, with larger circles showing meteorites with greater mass. The color of each circle shows when the meteorite was recorded, from older records in pale blue and gray-green tones to more recent records in brighter yellow tones. The map shows that meteorite records are not evenly spread across the globe. They are especially concentrated in North America, Europe, northern Africa, parts of Asia, Australia, and Antarctica.
+
+```{r}
+#| label: viz-1a
+#| fig-cap: "Recorded meteorite landings around the world, with point size representing meteorite mass in kilograms and color showing the time period of each record." 
+#| fig-alt: "World map of recorded meteorite landings, with points sized by meteorite mass in kilograms and colored by time period ranging from a gradient of white to yellow. Meteorites are densely clustered in North America, Europe, northern Africa, parts of Asia, Australia, and Antarctica, with larger masses shown as larger circles."
+#| fig-width: 14
+#| fig-height: 8
+
+v1a_data <- read_csv("data/data-clean/v1a_data.csv")
+
+ggplot() +
+  geom_polygon(
+    data = map_data("world"),
+    aes(x = long, y = lat, group = group),
+    fill = "#14213d",
+    color = "#2b4c8a",
+    linewidth = 0.25
+  ) +
+  geom_point(
+    data = v1a_data,
+    aes(
+      x = reclong,
+      y = reclat,
+      color = time_period,
+      size = mass_kg
+    ),
+    alpha = 0.45
+  ) +
+  coord_fixed(1.3) +
+  scale_size_continuous(
+    trans = "sqrt",
+    range = c(0.08, 6),
+    breaks = c(100, 1000, 10000),
+    labels = label_comma(),
+    name = "Meteorite Mass (kg)"
+  ) +
+  scale_color_manual(
+    values = c(
+      "1950 and older" = "#DEF2F9", 
+      "1951 to 1960" = "#B8C7BC",
+      "1961 to 1970" = "#777E57",
+      "1971 to 1980" = "#444406",
+      "1981 to 1990" = "#72690E", 
+      "1991 to 2000" = "#ADA207",
+      "2001 to 2010" = "#E8DA00", 
+      "2011 to current day" = "#F4ED80"
+    ),
+    name = "Time Period"
+  ) +
+  labs(
+    title = "Meteorite Landings Around the World",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_void() +
+  theme(
+    plot.background = element_rect(fill = "#020617", color = NA),
+    panel.background = element_rect(fill = "#020617", color = NA),
+    legend.background = element_rect(fill = "#0b132b", color = NA),
+    legend.box.background = element_rect(fill = "#0b132b", color = "#243b6b", linewidth = 0.5),
+    legend.key = element_rect(fill = "#0b132b", color = NA),
+    legend.text = element_text(color = "white", size = 10),
+    legend.title = element_text(color = "white", size = 12, face = "bold"),
+    plot.title = element_text(
+      color = "white",
+      size = 26,
+      face = "bold",
+      hjust = 0.5,
+      margin = margin(b = 20)
+    ),
+    legend.position = "left",
+    legend.box = "vertical",
+    legend.margin = margin(10, 10, 10, 10),
+    plot.margin = margin(20, 20, 20, 20)
+  ) +
+  guides(
+    size = guide_legend(
+      order = 1,
+      title.position = "top",
+      override.aes = list(color = "white", alpha = 0.5),
+      label.position = "right"
+    ),
+    color = guide_legend(
+      order = 2,
+      title.position = "top",
+      override.aes = list(shape = 15, size = 5, alpha = 1)
+    )
+  )
+```
+
+### Visualization 1B
+
+This visualization shows recorded meteorite locations across the United States. Each circle represents a meteorite, with larger circles showing heavier meteorites. The color of each circle shows the time period when the meteorite was recorded. The map shows clusters of meteorite records in the Southwest, central Great Plains, and parts of the Southeast, while some regions, such as the Pacific Northwest and Northeast, have fewer recorded meteorites.
+
+```{r}
+#| label: viz-1b
+#| fig-cap: "Recorded meteorite landings across the United States, with point size representing meteorite mass in kilograms and color showing the time period of each record."
+#| fig-alt: "Map of recorded meteorite landings in the United States, with points sized by meteorite mass in kilograms and colored by time period ranging from a gradient of white to yellow. Landings are concentrated in the Southwest, central Great Plains, and parts of the Southeast, with fewer points across the Pacific Northwest and Northeast."
+#| fig-width: 14
+#| fig-height: 8
+
+us_meteorites <- read_csv("data/data-clean/V1b_data.csv")
+
+ggplot() +
+  geom_polygon(
+    data = map_data("state"),
+    aes(x = long, y = lat, group = group),
+    fill = "#14213d",
+    color = "#2b4c8a",
+    linewidth = 0.25
+  ) +
+  geom_point(
+    data = us_meteorites,
+    aes(
+      x = reclong,
+      y = reclat,
+      color = time_period,
+      size = mass_kg
+    ),
+    alpha = 0.7
+  ) +
+  coord_fixed(
+    ratio = 1.3,
+    xlim = c(-125, -66),
+    ylim = c(24, 50)
+  ) +
+  scale_size_continuous(
+    trans = "sqrt",
+    range = c(0.08, 6),
+    breaks = c(10, 1000, 10000),
+    labels = label_comma(),
+    name = "Meteorite Mass (kg)"
+  ) +
+  scale_color_manual(
+    values = c(
+      "1950 and older" = "#DEF2F9",
+      "1951 to 1960" = "#B8C7BC",
+      "1961 to 1970" = "#777E57",
+      "1971 to 1980" = "#444406",
+      "1981 to 1990" = "#72690E",
+      "1991 to 2000" = "#ADA207",
+      "2001 to 2010" = "#E8DA00",
+      "2011 to current day" = "#F4ED80"
+    ),
+    name = "Time Period"
+  ) +
+  labs(
+    title = "Meteorite Landings in the United States",
+    x = NULL,
+    y = NULL
+  ) +
+  theme_void() +
+  theme(
+    plot.background = element_rect(fill = "#020617", color = NA),
+    panel.background = element_rect(fill = "#020617", color = NA),
+    legend.background = element_rect(fill = "#0b132b", color = NA),
+    legend.box.background = element_rect(fill = "#0b132b", color = "#243b6b", linewidth = 0.5),
+    legend.key = element_rect(fill = "#0b132b", color = NA),
+    legend.text = element_text(color = "white", size = 10),
+    legend.title = element_text(color = "white", size = 12, face = "bold"),
+    plot.title = element_text(
+      color = "white",
+      size = 26,
+      face = "bold",
+      hjust = 0.5,
+      margin = margin(b = 20)
+    ),
+    legend.position = "left",
+    legend.box = "vertical",
+    legend.margin = margin(10, 10, 10, 10),
+    plot.margin = margin(20, 20, 20, 20)
+  ) +
+  guides(
+    size = guide_legend(
+      order = 1,
+      title.position = "top",
+      override.aes = list(color = "white", alpha = 0.5),
+      label.position = "right"
+    ),
+    color = guide_legend(
+      order = 2,
+      title.position = "top",
+      override.aes = list(shape = 15, size = 5, alpha = 1)
+    )
+  )
+
+```
+
+### Visualization 2
+
+This visualization shows how iron content varies among Type 3 chondrite meteorites as they become more thermally altered, meaning they have been changed by heat while on their parent asteroid. Each small square represents a meteorite observation. The stacked columns move from more primitive meteorites on the left to more metamorphized meteorites on the right. The shades of gray show iron content, ranging from no iron in the lightest gray to high iron in the darkest gray. Overall, the chart shows that most Type 3 chondrites in this dataset have moderate or high iron content, with fewer observations in the no-iron and low-iron categories, and that more meteorites have undergone thermal alteration than not.
+
+```{r}
+#| label: viz-2
+#| fig-cap: "Iron content of Type 3 chondrite meteorites across levels of thermal alteration, based on the Van Schmus and Wood classification system."
+#| fig-alt: "Waffle chart showing iron content of Type 3 chondrites by thermal alteration level. Stacked gray squares represent meteorite observations, with darker squares indicating higher iron content. There are significantly more observations on the right half of the graphic. A gradient bar below runs from “Primitive” to “Metamorphized.”"
+#| fig-align: center
+
+chondrites_thermal_iron <- read_csv("data/data-clean/V2_data.csv")
+
+waffle_plot <- chondrites_thermal_iron |>
+  mutate(
+    iron_stack = factor(
+      iron_content,
+      levels = c(
+        "High Iron", 
+        "Moderate Iron", 
+        "Low Iron", 
+        "No Iron"
+      )
+    )
+  ) |>
+  count(thermal_alteration_bins, iron_stack) |>
+  ggplot(aes(fill = iron_stack, values = n)) +
+  geom_waffle(
+    n_rows = 7,
+    size = 0.25,
+    color = "white",
+    flip = TRUE
+  ) +
+  facet_wrap(~ thermal_alteration_bins, nrow = 1, strip.position = "bottom") +
+  scale_fill_manual(
+    values = c(
+      "No Iron" = "#d9d9d9",
+      "Low Iron" = "#999999",
+      "Moderate Iron" = "#646464",
+      "High Iron" = "#454545"
+    ),
+    breaks = c(
+      "No Iron", 
+      "Low Iron", 
+      "Moderate Iron", 
+      "High Iron"
+    ),
+    name = "Iron Content"
+  ) +
+  labs(
+    title = "Iron Content of Type 3 Chondrites by Thermal Alteration",
+    subtitle = "Based on the Van Schmus and Wood Classification System"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    panel.spacing.x = unit(0, "pt"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.key.size = unit(10, "pt"),
+    strip.text = element_blank(),
+    plot.margin = margin(t = 10, r = 10, b = 0, l = 10),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5)
+  )
+
+x_axis_gradient_data <- tibble(
+  x = seq(1, 700),
+  y = 1,
+  value = seq(0, 1, length.out = 700)
+)
+
+bin_amount <- 9
+
+x_axis_gradient_bar <- ggplot(x_axis_gradient_data, aes(x = x, y = y, fill = value)) +
+  geom_tile(height = 1) +
+  annotate(
+    "text",
+    x = 10,
+    y = 1,
+    label = "P R I M I T I V E",
+    color = "white",
+    hjust = 0,
+    fontface = "bold",
+    size = 3
+  ) +
+  annotate(
+    "text",
+    x = 690,
+    y = 1,
+    label = " M E T A M O R P H I Z E D",
+    color = "white",
+    hjust = 1,
+    fontface = "bold",
+    size = 3
+  ) +
+  scale_fill_gradientn(
+    colors = c("#001f4d", "#0057b8", "#b7dff2", "#f4df9c", "#ffd60a", "#f97316", "#7f1d1d"),
+    guide = "none"
+  ) +
+  scale_x_continuous(
+    expand = c(0, 0),
+    breaks = seq(1, 700, length.out = bin_amount + 1),
+    guide = guide_axis(position = "top")
+  ) +
+  coord_cartesian(expand = FALSE) +
+  theme_void() +
+  theme(
+    panel.border = element_rect(color = "lightgray", fill = NA, linewidth = 1),
+    axis.ticks.x = element_line(color = "lightgray", linewidth = 0.5),
+    axis.ticks.length.x = unit(5, "pt"),
+    plot.margin = margin(t = -5, r = 10, b = 10, l = 10)
+  )
+
+waffle_plot / x_axis_gradient_bar +
+  plot_layout(heights = c(10, 1))
+```
+
+### Visualization 3A
+
+This visualization shows how the makeup of recorded achondrite meteorites changes across 15-year periods from 1865 to 2015. Each bar represents one time period, and the colors show the percentage of achondrites from each subtype during that period. This makes it easier to compare which achondrite types were more common in different parts of the historical record, rather than focusing only on the total number of meteorites.
+
+```{r}
+#| label: viz-3a
+#| fig-cap: "Percentage of recorded achondrite meteorites by subtype across 15-year periods from 1865 to 2015."
+#| fig-alt: "Stacked percentage bar chart showing achondrite meteorite subtypes over time. Each bar represents a 15-year period from 1865 to 2015, with colors showing the proportion of each achondrite subtype in that period."
+#| fig-width: 9
+#| fig-height: 6
+
+achondrite_composition <- read_csv("data/data-clean/V3a_data.csv")
+
+ggplot(
+  achondrite_composition,
+  aes(
+    x = year_period_mid,
+    fill = achondrite_type
+  )
+) +
+  geom_bar(
+    position = "fill",
+    width = 14
+  ) +
+  scale_x_continuous(
+    breaks = seq(1865, 2015, by = 15),
+    limits = c(1865, 2015),
+    expand = c(0, 0),
+    name = "Year"
+  ) +
+  scale_y_continuous(
+    labels = label_percent(),
+    name = "Percent of Recorded Achondrites"
+  ) +
+  scale_fill_viridis_d(
+    option = "D",
+    direction = -1
+  ) +
+  guides(
+    fill = guide_legend(nrow = 2, byrow = TRUE)
+  ) +
+  labs(
+    title = "Achondrite Composition Percentage Over 150 Years",
+    subtitle = "Each bar shows the percentage of recorded achondrites in a 15-year period",
+    x = "Year",
+    y = "Percent of Recorded Achondrites"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.key.size = unit(10, "pt"),
+    axis.ticks.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    plot.margin = margin(t = 20, r = 30, b = 20, l = 20)
+  )
+```
+
+
+### Visualization 3B
+
+This visualization shows when different achondrite meteorite subtypes are concentrated in the recorded data between 1940 and 2015. Each ridge represents one achondrite subtype, and the height of the ridge shows where records for that subtype are more concentrated across time. This makes it easier to see that many achondrite records are clustered in more recent decades, while some subtypes appear more spread out or have smaller concentrations.
+
+```{r}
+#| label: viz-3b
+#| fig-cap: "Distribution of recorded achondrite meteorite subtypes over time from 1940 to 2015."
+#| fig-alt: "Ridgeline chart showing achondrite meteorite subtypes from 1940 to 2015. Each colored ridge represents a subtype, with taller areas showing years where records for that subtype are more concentrated."
+#| fig-width: 9
+#| fig-height: 6
+
+achondrite_ridge_data <- read_csv("data/data-clean/V3b_data.csv") |>
+  mutate(
+    achondrite_type = factor(
+      achondrite_type,
+      levels = c(
+        "Winonaite",
+        "Ureilite",
+        "Martian",
+        "Lunar",
+        "Lodranite",
+        "Howardite",
+        "Eucrite",
+        "Diogenite",
+        "Brachinite",
+        "Aubrite",
+        "Angrite",
+        "Acapulcoite"
+      )
+    )
+  )
+
+ggplot(
+  achondrite_ridge_data,
+  aes(
+    x = year,
+    y = achondrite_type,
+    fill = achondrite_type
+  )
+) +
+  geom_density_ridges(
+    alpha = 0.75,
+    color = "black",
+    linewidth = 0.4,
+    scale = 1.4,
+    rel_min_height = 0.01
+  ) +
+  scale_x_continuous(
+    limits = c(1940, 2015),
+    breaks = seq(1940, 2015, by = 15),
+    name = "Year"
+  ) +
+  scale_fill_viridis_d(
+    option = "D",
+    guide = "none"
+  ) +
+  labs(
+    title = "Achondrite Composition Concentration Over 75 Years",
+    subtitle = "Ridges show when recorded achondrite subtypes are concentrated over time",
+    x = "Year",
+    y = ""
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5)
+  )
+```
