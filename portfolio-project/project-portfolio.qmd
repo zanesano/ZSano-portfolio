@@ -1,17 +1,12 @@
 ---
 title: "Portfolio Project"
 author: "Zane Sano"
-format:
-  html:
-    theme: cyborg
-    toc: true
-    toc-depth: 2
-    page-layout: full
-    smooth-scroll: true
+format: html
 execute: 
   echo: false
   warning: false
   message: false
+embed-resources: true
 ---
 
 My project will use NASA meteorite landing data to explore where meteorites are found, how recorded landings have changed over time, and how meteorite mass differs across categories.

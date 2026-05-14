@@ -15,7 +15,7 @@ website:
         text: "Portfolio Project"
 format:
   html:
-    theme: quartz
+    theme: cyborg
     css: styles.css
     toc: true
 
